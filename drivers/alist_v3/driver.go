@@ -3,10 +3,12 @@ package alist_v3
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/conf"
@@ -93,8 +95,10 @@ func (d *AListV3) List(ctx context.Context, dir model.Obj, args model.ListArgs) 
 			Object: model.Object{
 				Name:     f.Name,
 				Modified: f.Modified,
+				Ctime:    f.Created,
 				Size:     f.Size,
 				IsFolder: f.IsDir,
+				HashInfo: utils.FromString(f.HashInfo),
 			},
 			Thumbnail: model.Thumbnail{Thumbnail: f.Thumb},
 		}
@@ -105,11 +109,19 @@ func (d *AListV3) List(ctx context.Context, dir model.Obj, args model.ListArgs) 
 
 func (d *AListV3) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	var resp common.Resp[FsGetResp]
+	// if PassUAToUpsteam is true, then pass the user-agent to the upstream
+	userAgent := base.UserAgent
+	if d.PassUAToUpsteam {
+		userAgent = args.Header.Get("user-agent")
+		if userAgent == "" {
+			userAgent = base.UserAgent
+		}
+	}
 	_, err := d.request("/fs/get", http.MethodPost, func(req *resty.Request) {
 		req.SetResult(&resp).SetBody(FsGetReq{
 			Path:     file.GetPath(),
 			Password: d.MetaPassword,
-		})
+		}).SetHeader("user-agent", userAgent)
 	})
 	if err != nil {
 		return nil, err
@@ -171,13 +183,13 @@ func (d *AListV3) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *AListV3) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	_, err := d.request("/fs/put", http.MethodPut, func(req *resty.Request) {
+	_, err := d.requestWithTimeout("/fs/put", http.MethodPut, func(req *resty.Request) {
 		req.SetHeader("File-Path", path.Join(dstDir.GetPath(), stream.GetName())).
 			SetHeader("Password", d.MetaPassword).
 			SetHeader("Content-Length", strconv.FormatInt(stream.GetSize(), 10)).
 			SetContentLength(true).
-			SetBody(stream.GetReadCloser())
-	})
+			SetBody(io.ReadCloser(stream))
+	}, time.Hour*6)
 	return err
 }
 

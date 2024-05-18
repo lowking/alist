@@ -9,8 +9,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	// CanaryHeaderKey CanaryHeaderValue for lifting rate limit restrictions
+	CanaryHeaderKey   = "X-Canary"
+	CanaryHeaderValue = "client=web,app=share,version=v2.3.1"
+)
+
 func (d *AliyundriveShare) refreshToken() error {
-	url := "https://auth.aliyundrive.com/v2/account/token"
+	url := "https://auth.alipan.com/v2/account/token"
 	var resp base.TokenResp
 	var e ErrorResp
 	_, err := base.RestyClient.R().
@@ -41,7 +47,7 @@ func (d *AliyundriveShare) getShareToken() error {
 	var resp ShareTokenResp
 	_, err := base.RestyClient.R().
 		SetResult(&resp).SetError(&e).SetBody(data).
-		Post("https://api.aliyundrive.com/v2/share_link/get_share_token")
+		Post("https://api.alipan.com/v2/share_link/get_share_token")
 	if err != nil {
 		return err
 	}
@@ -58,6 +64,7 @@ func (d *AliyundriveShare) request(url, method string, callback base.ReqCallback
 		SetError(&e).
 		SetHeader("content-type", "application/json").
 		SetHeader("Authorization", "Bearer\t"+d.AccessToken).
+		SetHeader(CanaryHeaderKey, CanaryHeaderValue).
 		SetHeader("x-share-token", d.ShareToken)
 	if callback != nil {
 		callback(req)
@@ -91,7 +98,7 @@ func (d *AliyundriveShare) getFiles(fileId string) ([]File, error) {
 	data := base.Json{
 		"image_thumbnail_process": "image/resize,w_160/format,jpeg",
 		"image_url_process":       "image/resize,w_1920/format,jpeg",
-		"limit":                   100,
+		"limit":                   200,
 		"order_by":                d.OrderBy,
 		"order_direction":         d.OrderDirection,
 		"parent_file_id":          fileId,
@@ -107,8 +114,9 @@ func (d *AliyundriveShare) getFiles(fileId string) ([]File, error) {
 		var resp ListResp
 		res, err := base.RestyClient.R().
 			SetHeader("x-share-token", d.ShareToken).
+			SetHeader(CanaryHeaderKey, CanaryHeaderValue).
 			SetResult(&resp).SetError(&e).SetBody(data).
-			Post("https://api.aliyundrive.com/adrive/v3/file/list")
+			Post("https://api.alipan.com/adrive/v3/file/list")
 		if err != nil {
 			return nil, err
 		}
